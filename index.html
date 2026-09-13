@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Malayalam Smart Bill</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f3f6fa;color:#172033;font-family:Arial,"Noto Sans Malayalam",sans-serif}
+header{background:#1769e0;color:#fff;padding:20px 16px}header h1{margin:0 0 5px;font-size:24px}header p{margin:0}
+main{max-width:1000px;margin:16px auto;padding:0 12px 40px;display:grid;grid-template-columns:1.15fr .85fr;gap:16px}
+.card{background:#fff;border:1px solid #dfe5ee;border-radius:16px;padding:18px;box-shadow:0 4px 14px #0000000b}
+h2{font-size:19px;margin:0 0 14px}.voice{display:flex;gap:8px}textarea,input,select{width:100%;padding:12px;border:1px solid #ccd5e2;border-radius:10px;font-size:16px;background:#fff}
+textarea{min-height:95px}.buttons{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}button{border:0;border-radius:10px;padding:11px 14px;font-weight:bold;cursor:pointer}.primary{background:#1769e0;color:#fff}.secondary{background:#eaf1ff;color:#1455b8}.danger{background:#ffeded;color:#b42318}.mic{font-size:22px;min-width:58px}
+.hint,.small{font-size:13px;color:#667085;line-height:1.5}.hint{margin-top:8px}
+.billrow,.catrow{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:12px 0;border-bottom:1px solid #edf0f4}.billrow:last-child,.catrow:last-child{border-bottom:0}
+.total{display:flex;justify-content:space-between;border-top:2px solid #172033;margin-top:8px;padding-top:14px;font-size:23px;font-weight:bold}
+.catform{display:grid;grid-template-columns:1fr 1fr 100px 90px;gap:7px;margin-bottom:12px}.catrow button{padding:7px 9px;font-size:12px}
+.notice{display:none;margin-top:12px;padding:12px;border-radius:10px;background:#fff5d6;color:#684900}.notice input{margin-top:8px}.notice button{margin-top:8px}
+.empty{text-align:center;color:#667085;padding:16px 0}
+@media(max-width:760px){main{grid-template-columns:1fr}.catform{grid-template-columns:1fr 1fr}.catform button{grid-column:span 2}}
+</style>
+</head>
+<body>
+<header><h1>🛒 Malayalam Smart Bill</h1><p>Voice or text billing • Catalogue prices • Exact total</p></header>
+<main>
+<section class="card">
+<h2>🎙️ Add items</h2>
+<div class="voice">
+<textarea id="items" placeholder="ഉദാ: തക്കാളി 500 ഗ്രാം, ഉരുളക്കിഴങ്ങ് ഒരു കിലോ, സവാള 750 ഗ്രാം"></textarea>
+<button id="voiceBtn" class="primary mic">🎤</button>
+</div>
+<div class="buttons">
+<button id="addBtn" class="primary">Add to bill</button>
+<button id="readBtn" class="secondary">🔊 Read bill</button>
+<button id="clearBtn" class="danger">Clear</button>
+</div>
+<div class="hint">Try: <b>തക്കാളി 500 ഗ്രാം, ഉരുളക്കിഴങ്ങ് 1 കിലോ, സവാള 750 ഗ്രാം</b><br>Or: <b>tomato 500g, potato 1kg, onion 750g</b></div>
+<div id="notice" class="notice"></div>
+<h2 style="margin-top:22px">🧾 Current bill</h2>
+<div id="bill"></div>
+<div class="total"><span>Total</span><span id="total">₹0.00</span></div>
+</section>
+
+<section class="card">
+<h2>📦 Product catalogue</h2>
+<div class="catform">
+<input id="name" placeholder="Product name">
+<input id="aliases" placeholder="Malayalam / aliases">
+<input id="price" type="number" min="0" step="0.01" placeholder="Price">
+<select id="unit"><option value="kg">per kg</option><option value="L">per L</option><option value="piece">per piece</option></select>
+<button id="save" class="primary">Add product</button>
+</div>
+<div class="hint">Example aliases: <b>tomato, തക്കാളി</b></div>
+<div id="catalogue"></div>
+</section>
+</main>
+
+<script>
+(function(){
+"use strict";
+const $=id=>document.getElementById(id);
+const defaultProducts=[
+{name:"Tomato",aliases:["tomato","തക്കാളി"],price:60,unit:"kg"},
+{name:"Potato",aliases:["potato","ഉരുളക്കിഴങ്ങ്"],price:40,unit:"kg"},
+{name:"Onion",aliases:["onion","സവാള","ഉള്ളി"],price:50,unit:"kg"},
+{name:"Rice",aliases:["rice","അരി"],price:65,unit:"kg"},
+{name:"Milk",aliases:["milk","പാൽ"],price:60,unit:"L"}
+];
+let catalogue;
+try{catalogue=JSON.parse(localStorage.getItem("smartBillCatalogue"))||defaultProducts}catch(e){catalogue=defaultProducts}
+let bill=[];
+
+function money(n){return "₹"+Number(n).toFixed(2)}
+function norm(s){return String(s).toLowerCase().replace(/[.,;:!?]/g," ").replace(/\s+/g," ").trim()}
+function save(){localStorage.setItem("smartBillCatalogue",JSON.stringify(catalogue))}
+
+function renderCatalogue(){
+$("catalogue").innerHTML="";
+catalogue.forEach((p,i)=>{
+let d=document.createElement("div");d.className="catrow";
+d.innerHTML="<div><b>"+p.name+"</b><div class='small'>"+p.aliases.join(", ")+" • "+money(p.price)+"/"+p.unit+"</div></div>";
+let b=document.createElement("button");b.className="danger";b.textContent="Delete";
+b.onclick=function(){catalogue.splice(i,1);save();renderCatalogue()};
+d.appendChild(b);$("catalogue").appendChild(d);
+});
+}
+
+function renderBill(){
+$("bill").innerHTML="";
+if(!bill.length){$("bill").innerHTML="<div class='empty'>No items added yet.</div>"}
+bill.forEach((x,i)=>{
+let d=document.createElement("div");d.className="billrow";
+d.innerHTML="<div><b>"+x.name+"</b><div class='small'>"+x.qtyText+" • "+money(x.amount)+"</div></div>";
+let b=document.createElement("button");b.className="danger";b.textContent="Remove";
+b.onclick=function(){bill.splice(i,1);renderBill()};
+d.appendChild(b);$("bill").appendChild(d);
+});
+let sum=bill.reduce((a,x)=>a+x.amount,0);$("total").textContent=money(sum);
+}
+
+function findProduct(part){
+let t=norm(part);
+for(let p of catalogue){
+for(let a of [p.name].concat(p.aliases||[])){if(t.indexOf(norm(a))!==-1)return p}
+}
+return null;
+}
+
+function numberValue(t){
+let m=t.match(/\d+(?:\.\d+)?/);if(m)return parseFloat(m[0]);
+const words={"ഒരു":1,"ഒന്ന്":1,"രണ്ട്":2,"മൂന്ന്":3,"നാല്":4,"അഞ്ച്":5,"ആറ്":6,"ആറ്":6,"ഏഴ്":7,"എട്ട്":8,"ഒമ്പത്":9,"പത്ത്":10,"one":1,"two":2,"three":3,"four":4,"five":5,"six":6,"seven":7,"eight":8,"nine":9,"ten":10};
+for(let k in words)if(t.indexOf(k)!==-1)return words[k];
+return 1;
+}
+function getQuantity(part,p){
+let t=norm(part), n=numberValue(t);
+if(/അര|half/.test(t))n=.5;
+if(/മുക്കാൽ|three quarter|3\/4/.test(t))n=.75;
+if(p.unit==="kg" && /(g|gram|grams|ഗ്രാം|ഗ്രാമം)/i.test(t))return n/1000;
+if(p.unit==="L" && /(ml|millilitre|milliliter|മില്ലി)/i.test(t))return n/1000;
+return n;
+}
+function qtyText(q,p){
+if(p.unit==="kg")return q<1?(q*1000)+" g":q+" kg";
+if(p.unit==="L")return q<1?(q*1000)+" mL":q+" L";
+return q+" piece(s)";
+}
+function splitParts(text){return text.split(/,|;|\n| കൂടെ | കൂടാതെ | and /i).map(x=>x.trim()).filter(Boolean)}
+
+function showMissing(name,part){
+let n=$("notice");n.style.display="block";
+n.innerHTML="<b>⚠️ "+name+" is not in the catalogue.</b><br>Please enter its price per kg/L/piece:<br>";
+let inp=document.createElement("input");inp.id="missingPrice";inp.type="number";inp.step="0.01";inp.placeholder="Price";
+let add=document.createElement("button");add.className="primary";add.textContent="Add price & continue";
+add.onclick=function(){
+let price=parseFloat(inp.value);if(!Number.isFinite(price)||price<0){alert("Enter a valid price.");return}
+let p={name:name,aliases:[name],price:price,unit:"kg"};catalogue.push(p);save();renderCatalogue();
+let q=getQuantity(part,p);bill.push({name:p.name,qtyText:qtyText(q,p),amount:q*p.price});
+n.style.display="none";renderBill();
+};
+n.appendChild(inp);n.appendChild(document.createElement("br"));n.appendChild(add);
+}
+
+function addItems(){
+let text=$("items").value.trim();
+if(!text){alert("Please type or speak the items first.");return}
+let parts=splitParts(text);
+let missing=false;
+for(let part of parts){
+let p=findProduct(part);
+if(!p){
+let clean=part.replace(/\d+(?:\.\d+)?/g,"").replace(/kg|g|grams?|ml|l/gi,"").replace(/ഗ്രാം|കിലോ|ലിറ്റർ|മില്ലി/gi,"").trim();
+showMissing(clean||part,part);missing=true;continue;
+}
+let q=getQuantity(part,p);
+bill.push({name:p.name,qtyText:qtyText(q,p),amount:q*p.price});
+}
+$("items").value="";renderBill();
+if(!missing)$("notice").style.display="none";
+}
+
+$("save").onclick=function(){
+let name=$("name").value.trim(), price=parseFloat($("price").value), unit=$("unit").value;
+let aliases=$("aliases").value.split(",").map(x=>x.trim()).filter(Boolean);
+if(!name||!Number.isFinite(price)||price<0){alert("Enter product name and valid price.");return}
+catalogue.push({name:name,aliases:[name].concat(aliases),price:price,unit:unit});save();renderCatalogue();
+$("name").value="";$("aliases").value="";$("price").value="";
+};
+
+$("addBtn").onclick=addItems;
+$("clearBtn").onclick=function(){bill=[];renderBill();$("notice").style.display="none"};
+$("readBtn").onclick=function(){
+let total=bill.reduce((a,x)=>a+x.amount,0);
+let msg=bill.length?"ആകെ "+total.toFixed(2)+" രൂപ":"ബില്ലിൽ ഇനങ്ങളില്ല";
+if("speechSynthesis"in window){speechSynthesis.cancel();let u=new SpeechSynthesisUtterance(msg);u.lang="ml-IN";speechSynthesis.speak(u)}else alert(msg);
+};
+
+let Recognition=window.SpeechRecognition||window.webkitSpeechRecognition;
+if(Recognition){
+let r=new Recognition();r.lang="ml-IN";r.interimResults=false;r.continuous=false;
+$("voiceBtn").onclick=function(){try{r.start()}catch(e){}};
+r.onresult=function(e){$("items").value=e.results[0][0].transcript};
+r.onerror=function(e){alert("Voice recognition could not start. Please check microphone permission, or type the items.")};
+}else{$("voiceBtn").onclick=function(){alert("Voice recognition is not supported here. Try Google Chrome on Android, or type the items.")}}
+
+renderCatalogue();renderBill();
+})();
+</script>
+</body>
+</html>
